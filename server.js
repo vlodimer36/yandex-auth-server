@@ -112,7 +112,7 @@ app.post('/api/yandex-auth', async (req, res) => {
             user: {
                 id: userData.id,
                 login: userData.login,
-                email: userData.default_email,
+                email: userData.default_email || userData.emails?.[0] || 'no-email',
                 first_name: userData.first_name,
                 last_name: userData.last_name,
                 sex: userData.sex
@@ -173,6 +173,83 @@ app.get('/api/test', (req, res) => {
     });
 });
 
+// 🔐 АДМИН-ПАНЕЛЬ - красивый интерфейс
+app.get('/admin', (req, res) => {
+    try {
+        const filePath = path.join(__dirname, 'users.json');
+        let users = [];
+        
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            users = JSON.parse(data);
+        }
+
+        // Создаем красивую HTML-страницу
+        const html = `
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Панель администратора</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
+        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; text-align: center; }
+        .stats { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        th { background: #2196F3; color: white; }
+        tr:hover { background: #f5f5f5; }
+        .badge { background: #4CAF50; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>👨‍💼 Панель администратора</h1>
+        
+        <div class="stats">
+            <h3>📊 Статистика</h3>
+            <p>Всего пользователей: <strong>${users.length}</strong></p>
+            <p>Последняя авторизация: <strong>${users.length > 0 ? new Date(users[users.length-1].last_login).toLocaleString() : 'нет данных'}</strong></p>
+        </div>
+
+        <h3>👥 Список пользователей</h3>
+        ${users.length > 0 ? `
+            <table>
+                <tr>
+                    <th>ID</th>
+                    <th>Имя</th>
+                    <th>Email</th>
+                    <th>Пол</th>
+                    <th>Первая авторизация</th>
+                    <th>Последний вход</th>
+                </tr>
+                ${users.map(user => `
+                    <tr>
+                        <td>${user.id}</td>
+                        <td><strong>${user.first_name || ''} ${user.last_name || ''}</strong></td>
+                        <td>${user.email || 'no-email'}</td>
+                        <td>${user.sex === 'male' ? '♂ Мужской' : user.sex === 'female' ? '♀ Женский' : 'Не указан'}</td>
+                        <td>${new Date(user.first_login).toLocaleString()}</td>
+                        <td>${new Date(user.last_login).toLocaleString()}</td>
+                    </tr>
+                `).join('')}
+            </table>
+        ` : '
+            <p style="text-align: center; color: #666; padding: 40px;">
+                Пока нет пользователей. Как только кто-то авторизуется, они появятся здесь.
+            </p>
+        '}
+    </div>
+</body>
+</html>
+        `;
+
+        res.send(html);
+
+    } catch (error) {
+        res.status(500).send('Ошибка загрузки админ-панели: ' + error.message);
+    }
+});
 // Запуск сервера
 app.listen(PORT, '0.0.0.0', () => {
     console.log('==================================');
