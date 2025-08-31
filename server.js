@@ -14,7 +14,7 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// 📁 Путь к файлу с пользователями (в постоянном хранилище)
+// 📁 Путь к файлу с пользователями
 const usersFilePath = path.join(__dirname, 'users.json');
 
 // 🔄 Функция для загрузки пользователей
@@ -129,9 +129,10 @@ app.post('/api/yandex-auth', async (req, res) => {
 
         const userData = userResponse.data;
 
-        // 🆕 ПОЛУЧАЕМ АВАТАРКУ
+        // 🆕 ПОЛУЧАЕМ АВАТАРКУ из Яндекс аккаунта
         let avatarUrl = null;
         try {
+            // Второй запрос для получения информации об аватарке
             const avatarInfoResponse = await axios.get('https://login.yandex.ru/info', {
                 headers: {
                     'Authorization': `OAuth ${accessToken}`
@@ -143,12 +144,16 @@ app.post('/api/yandex-auth', async (req, res) => {
 
             const avatarInfo = avatarInfoResponse.data;
             
+            // Проверяем, есть ли аватарка у пользователя
             if (avatarInfo && avatarInfo.default_avatar_id && avatarInfo.default_avatar_id !== '0') {
+                // Формируем URL аватарки (islands-200 - оптимальный размер)
                 avatarUrl = `https://avatars.yandex.net/get-yapic/${avatarInfo.default_avatar_id}/islands-200`;
                 console.log('✅ Аватарка найдена');
+            } else {
+                console.log('ℹ️ У пользователя нет аватарки в Яндекс аккаунте');
             }
         } catch (avatarError) {
-            console.log('⚠️ Аватарка недоступна');
+            console.log('⚠️ Не удалось получить аватарку:', avatarError.message);
         }
 
         // ✅ СОХРАНЯЕМ ПОЛЬЗОВАТЕЛЯ
@@ -217,7 +222,7 @@ app.get('/admin', (req, res) => {
         th{background:#2196F3;color:white;}tr:hover{background:#f5f5f5;}.avatar-cell{text-align:center;}
         .avatar-img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
         .no-avatar{width:40px;height:40px;border-radius:50%;background:#667eea;color:white;display:flex;align-items:center;justify-content:center;
-        font-weight:bold;font-size:14px;margin:0 auto;}</style></head><body><div class="container>`;
+        font-weight:bold;font-size:14px;margin:0 auto;}</style></head><body><div class="container">`;
 
         html += '<h1>👨‍💼 Панель администратора</h1><div class="stats"><h3>📊 Статистика</h3>';
         html += '<p>Всего пользователей: <strong>' + users.length + '</strong></p>';
