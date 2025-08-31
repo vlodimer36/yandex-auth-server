@@ -26,6 +26,9 @@ function saveUserToFile(userData) {
             users = JSON.parse(data);
         }
         
+        // Получаем email (исправляем ошибку с undefined)
+        const userEmail = userData.default_email || userData.emails?.[0] || 'no-email';
+        
         // Проверяем, есть ли уже такой пользователь
         const existingUserIndex = users.findIndex(u => u.id === userData.id);
         
@@ -34,12 +37,18 @@ function saveUserToFile(userData) {
             users[existingUserIndex] = {
                 ...users[existingUserIndex],
                 ...userData,
+                email: userEmail,
                 last_login: new Date().toISOString()
             };
         } else {
             // Добавляем нового
             users.push({
-                ...userData,
+                id: userData.id,
+                login: userData.login,
+                email: userEmail,
+                first_name: userData.first_name,
+                last_name: userData.last_name,
+                sex: userData.sex,
                 first_login: new Date().toISOString(),
                 last_login: new Date().toISOString()
             });
@@ -47,7 +56,7 @@ function saveUserToFile(userData) {
         
         // Сохраняем обратно в файл
         fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
-        console.log('💾 Пользователь сохранен:', userData.email);
+        console.log('💾 Пользователь сохранен:', userEmail);
         
     } catch (error) {
         console.error('❌ Ошибка сохранения:', error);
@@ -128,7 +137,7 @@ app.post('/api/yandex-auth', async (req, res) => {
     }
 });
 
-// 📊 НОВЫЙ МАРШРУТ: Посмотреть всех пользователей
+// 📊 Маршрут: Посмотреть всех пользователей (JSON)
 app.get('/api/users', (req, res) => {
     try {
         const filePath = path.join(__dirname, 'users.json');
@@ -144,7 +153,7 @@ app.get('/api/users', (req, res) => {
     }
 });
 
-// 📋 НОВЫЙ МАРШРУТ: Получить количество пользователей
+// 📈 Маршрут: Получить статистику
 app.get('/api/stats', (req, res) => {
     try {
         const filePath = path.join(__dirname, 'users.json');
@@ -164,15 +173,6 @@ app.get('/api/stats', (req, res) => {
     }
 });
 
-// Тестовый маршрут
-app.get('/api/test', (req, res) => {
-    res.json({ 
-        message: 'Сервер работает!',
-        version: '1.0',
-        has_database: true
-    });
-});
-
 // 🔐 АДМИН-ПАНЕЛЬ - красивый интерфейс
 app.get('/admin', (req, res) => {
     try {
@@ -190,16 +190,93 @@ app.get('/admin', (req, res) => {
 <html>
 <head>
     <title>Панель администратора</title>
+    <meta charset="UTF-8">
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
-        h1 { color: #333; text-align: center; }
-        .stats { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
-        th { background: #2196F3; color: white; }
-        tr:hover { background: #f5f5f5; }
-        .badge { background: #4CAF50; color: white; padding: 4px 8px; border-radius: 12px; font-size: 12px; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            margin: 0; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container { 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            background: white; 
+            padding: 30px; 
+            border-radius: 15px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+        }
+        h1 { 
+            color: #333; 
+            text-align: center; 
+            margin-bottom: 30px;
+            font-size: 2.5em;
+        }
+        .stats { 
+            background: linear-gradient(135deg, #e3f2fd 0%, #bbdefb 100%);
+            padding: 25px; 
+            border-radius: 10px; 
+            margin-bottom: 30px;
+            border-left: 5px solid #2196F3;
+        }
+        .stats h3 {
+            margin-top: 0;
+            color: #1976d2;
+        }
+        table { 
+            width: 100%; 
+            border-collapse: collapse; 
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        th, td { 
+            padding: 15px 12px; 
+            text-align: left; 
+            border-bottom: 1px solid #e0e0e0; 
+        }
+        th { 
+            background: linear-gradient(135deg, #2196F3 0%, #1976d2 100%);
+            color: white; 
+            font-weight: 600;
+            position: sticky;
+            top: 0;
+        }
+        tr:hover { 
+            background: #f8f9fa; 
+        }
+        .badge { 
+            background: #4CAF50; 
+            color: white; 
+            padding: 6px 12px; 
+            border-radius: 20px; 
+            font-size: 12px; 
+            font-weight: bold;
+        }
+        .male { color: #1976d2; font-weight: bold; }
+        .female { color: #d81b60; font-weight: bold; }
+        .user-count {
+            font-size: 2em;
+            font-weight: bold;
+            color: #2196F3;
+        }
+        .last-login {
+            background: #e8f5e8;
+            padding: 10px;
+            border-radius: 5px;
+            margin-top: 10px;
+        }
+        .no-users {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+            font-size: 1.2em;
+        }
+        .no-users-icon {
+            font-size: 4em;
+            margin-bottom: 20px;
+            opacity: 0.5;
+        }
     </style>
 </head>
 <body>
@@ -207,37 +284,51 @@ app.get('/admin', (req, res) => {
         <h1>👨‍💼 Панель администратора</h1>
         
         <div class="stats">
-            <h3>📊 Статистика</h3>
-            <p>Всего пользователей: <strong>${users.length}</strong></p>
-            <p>Последняя авторизация: <strong>${users.length > 0 ? new Date(users[users.length-1].last_login).toLocaleString() : 'нет данных'}</strong></p>
+            <h3>📊 Статистика пользователей</h3>
+            <div class="user-count">${users.length} пользователей</div>
+            ${users.length > 0 ? `
+                <div class="last-login">
+                    <strong>Последний вход:</strong><br>
+                    ${new Date(users[users.length-1].last_login).toLocaleString('ru-RU')}<br>
+                    <strong>Пользователь:</strong> ${users[users.length-1].first_name} ${users[users.length-1].last_name}
+                </div>
+            ` : ''}
         </div>
 
-        <h3>👥 Список пользователей</h3>
+        <h3>👥 Список всех пользователей</h3>
         ${users.length > 0 ? `
             <table>
                 <tr>
                     <th>ID</th>
-                    <th>Имя</th>
+                    <th>Имя и фамилия</th>
                     <th>Email</th>
+                    <th>Логин</th>
                     <th>Пол</th>
                     <th>Первая авторизация</th>
                     <th>Последний вход</th>
                 </tr>
                 ${users.map(user => `
                     <tr>
-                        <td>${user.id}</td>
+                        <td><code>${user.id}</code></td>
                         <td><strong>${user.first_name || ''} ${user.last_name || ''}</strong></td>
                         <td>${user.email || 'no-email'}</td>
-                        <td>${user.sex === 'male' ? '♂ Мужской' : user.sex === 'female' ? '♀ Женский' : 'Не указан'}</td>
-                        <td>${new Date(user.first_login).toLocaleString()}</td>
-                        <td>${new Date(user.last_login).toLocaleString()}</td>
+                        <td>${user.login || 'no-login'}</td>
+                        <td>
+                            ${user.sex === 'male' ? '<span class="male">♂ Мужской</span>' : 
+                              user.sex === 'female' ? '<span class="female">♀ Женский</span>' : 
+                              'Не указан'}
+                        </td>
+                        <td>${new Date(user.first_login).toLocaleString('ru-RU')}</td>
+                        <td>${new Date(user.last_login).toLocaleString('ru-RU')}</td>
                     </tr>
                 `).join('')}
             </table>
         ` : '
-            <p style="text-align: center; color: #666; padding: 40px;">
-                Пока нет пользователей. Как только кто-то авторизуется, они появятся здесь.
-            </p>
+            <div class="no-users">
+                <div class="no-users-icon">👥</div>
+                <p>Пока нет пользователей</p>
+                <p>Как только кто-то авторизуется через Яндекс,<br>они появятся в этой таблице</p>
+            </div>
         '}
     </div>
 </body>
@@ -250,13 +341,24 @@ app.get('/admin', (req, res) => {
         res.status(500).send('Ошибка загрузки админ-панели: ' + error.message);
     }
 });
+
+// Тестовый маршрут
+app.get('/api/test', (req, res) => {
+    res.json({ 
+        message: 'Сервер работает!',
+        version: '1.0',
+        has_database: true,
+        admin_panel: 'https://yandex-auth-server.onrender.com/admin'
+    });
+});
+
 // Запуск сервера
 app.listen(PORT, '0.0.0.0', () => {
     console.log('==================================');
     console.log('🚀 СЕРВЕР ЗАПУЩЕН!');
     console.log(`📍 Порт: ${PORT}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
-    console.log(`📍 Пользователи: http://localhost:${PORT}/api/users`);
-    console.log(`📍 Статистика: http://localhost:${PORT}/api/stats`);
+    console.log(`📍 Админ-панель: http://localhost:${PORT}/admin`);
+    console.log(`📍 Пользователи (JSON): http://localhost:${PORT}/api/users`);
     console.log('==================================');
 });
