@@ -1,4 +1,4 @@
-console.log('🟢 Запускаюся...');
+console.log('🟢 Запускаюсь...');
 
 const express = require('express');
 const axios = require('axios');
@@ -26,6 +26,9 @@ function saveUserToFile(userData) {
             users = JSON.parse(data);
         }
         
+        // Получаем email (исправляем ошибку с undefined)
+        const userEmail = userData.default_email || userData.emails?.[0] || 'no-email';
+        
         // Проверяем, есть ли уже такой пользователь
         const existingUserIndex = users.findIndex(u => u.id === userData.id);
         
@@ -34,12 +37,18 @@ function saveUserToFile(userData) {
             users[existingUserIndex] = {
                 ...users[existingUserIndex],
                 ...userData,
+                email: userEmail,
                 last_login: new Date().toISOString()
             };
         } else {
             // Добавляем нового
             users.push({
-                ...userData,
+                id: userData.id,
+                login: userData.login,
+                email: userEmail,
+                first_name: userData.first_name,
+                last_name: userData.last_name,
+                sex: userData.sex,
                 first_login: new Date().toISOString(),
                 last_login: new Date().toISOString()
             });
@@ -47,7 +56,7 @@ function saveUserToFile(userData) {
         
         // Сохраняем обратно в файл
         fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
-        console.log('💾 Пользователь сохранен:', userData.email);
+        console.log('💾 Пользователь сохранен:', userEmail);
         
     } catch (error) {
         console.error('❌ Ошибка сохранения:', error);
@@ -112,7 +121,7 @@ app.post('/api/yandex-auth', async (req, res) => {
             user: {
                 id: userData.id,
                 login: userData.login,
-                email: userData.default_email,
+                email: userData.default_email || userData.emails?.[0] || 'no-email',
                 first_name: userData.first_name,
                 last_name: userData.last_name,
                 sex: userData.sex
@@ -128,7 +137,7 @@ app.post('/api/yandex-auth', async (req, res) => {
     }
 });
 
-// 📊 НОВЫЙ МАРШРУТ: Посмотреть всех пользователей
+// 📊 Маршрут: Посмотреть всех пользователей (JSON)
 app.get('/api/users', (req, res) => {
     try {
         const filePath = path.join(__dirname, 'users.json');
@@ -144,7 +153,7 @@ app.get('/api/users', (req, res) => {
     }
 });
 
-// 📋 НОВЫЙ МАРШРУТ: Получить количество пользователей
+// 📈 Маршрут: Получить статистику
 app.get('/api/stats', (req, res) => {
     try {
         const filePath = path.join(__dirname, 'users.json');
@@ -164,22 +173,77 @@ app.get('/api/stats', (req, res) => {
     }
 });
 
+// 🔐 АДМИН-ПАНЕЛЬ - УПРОЩЕННАЯ ВЕРСИЯ
+app.get('/admin', (req, res) => {
+    try {
+        const filePath = path.join(__dirname, 'users.json');
+        let users = [];
+        
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            users = JSON.parse(data);
+        }
+
+        // Простая HTML-страница без сложных шаблонных строк
+        let html = '<!DOCTYPE html><html><head><title>Панель администратора</title>';
+        html += '<meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;margin:20px;}';
+        html += '.container{max-width:1200px;margin:0 auto;}h1{color:#333;}';
+        html += 'table{width:100%;border-collapse:collapse;}th,td{padding:10px;border:1px solid #ddd;}';
+        html += 'th{background:#f5f5f5;}</style></head><body>';
+        html += '<div class="container"><h1>Панель администратора</h1>';
+        
+        html += '<h3>Статистика</h3>';
+        html += '<p>Всего пользователей: <strong>' + users.length + '</strong></p>';
+        
+        if (users.length > 0) {
+            html += '<p>Последний вход: <strong>' + new Date(users[users.length-1].last_login).toLocaleString('ru-RU') + '</strong></p>';
+        }
+        
+        html += '<h3>Список пользователей</h3>';
+        
+        if (users.length > 0) {
+            html += '<table><tr><th>ID</th><th>Имя</th><th>Email</th><th>Пол</th><th>Последний вход</th></tr>';
+            
+            users.forEach(user => {
+                html += '<tr>';
+                html += '<td>' + user.id + '</td>';
+                html += '<td><strong>' + (user.first_name || '') + ' ' + (user.last_name || '') + '</strong></td>';
+                html += '<td>' + (user.email || 'no-email') + '</td>';
+                html += '<td>' + (user.sex === 'male' ? 'Мужской' : user.sex === 'female' ? 'Женский' : 'Не указан') + '</td>';
+                html += '<td>' + new Date(user.last_login).toLocaleString('ru-RU') + '</td>';
+                html += '</tr>';
+            });
+            
+            html += '</table>';
+        } else {
+            html += '<p>Пока нет пользователей</p>';
+        }
+        
+        html += '</div></body></html>';
+        
+        res.send(html);
+
+    } catch (error) {
+        res.status(500).send('Ошибка загрузки админ-панели: ' + error.message);
+    }
+});
+
 // Тестовый маршрут
 app.get('/api/test', (req, res) => {
     res.json({ 
         message: 'Сервер работает!',
         version: '1.0',
-        has_database: true
+        has_database: true,
+        admin_panel: '/admin'
     });
 });
 
 // Запуск сервера
-app.listen(PORT, '0.0.0.0', () => {
+app.listen(PORT, () => {
     console.log('==================================');
     console.log('🚀 СЕРВЕР ЗАПУЩЕН!');
     console.log(`📍 Порт: ${PORT}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
-    console.log(`📍 Пользователи: http://localhost:${PORT}/api/users`);
-    console.log(`📍 Статистика: http://localhost:${PORT}/api/stats`);
+    console.log(`📍 Админ-панель: http://localhost:${PORT}/admin`);
     console.log('==================================');
 });
