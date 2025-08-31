@@ -49,6 +49,7 @@ function saveUserToFile(userData) {
                 first_name: userData.first_name,
                 last_name: userData.last_name,
                 sex: userData.sex,
+                avatar_url: userData.avatar_url,
                 first_login: new Date().toISOString(),
                 last_login: new Date().toISOString()
             });
@@ -111,9 +112,38 @@ app.post('/api/yandex-auth', async (req, res) => {
         });
 
         const userData = userResponse.data;
-        
+
+        // 🆕 ПОЛУЧАЕМ ИНФОРМАЦИЮ ОБ АВАТАРКЕ
+        let avatarUrl = null;
+        try {
+            const avatarInfoResponse = await axios.get('https://login.yandex.ru/info', {
+                headers: {
+                    'Authorization': `OAuth ${accessToken}`
+                },
+                params: {
+                    'format': 'json'
+                }
+            });
+
+            const avatarInfo = avatarInfoResponse.data;
+            
+            // Проверяем, есть ли аватарка у пользователя
+            if (avatarInfo && avatarInfo.default_avatar_id && avatarInfo.default_avatar_id !== '0') {
+                // Формируем URL аватарки (islands-200 - размер 200x200)
+                avatarUrl = `https://avatars.yandex.net/get-yapic/${avatarInfo.default_avatar_id}/islands-200`;
+                console.log('✅ Аватарка найдена:', avatarUrl);
+            } else {
+                console.log('ℹ️ У пользователя нет аватарки в Яндекс аккаунте');
+            }
+        } catch (avatarError) {
+            console.log('⚠️ Не удалось получить аватарку:', avatarError.message);
+        }
+
         // ✅ СОХРАНЯЕМ ПОЛЬЗОВАТЕЛЯ В ФАЙЛ
-        saveUserToFile(userData);
+        saveUserToFile({
+            ...userData,
+            avatar_url: avatarUrl
+        });
 
         // Отправляем ответ
         res.json({
@@ -124,7 +154,8 @@ app.post('/api/yandex-auth', async (req, res) => {
                 email: userData.default_email || userData.emails?.[0] || 'no-email',
                 first_name: userData.first_name,
                 last_name: userData.last_name,
-                sex: userData.sex
+                sex: userData.sex,
+                avatar_url: avatarUrl // 🆕 Добавляем URL аватарки
             }
         });
 
@@ -202,13 +233,14 @@ app.get('/admin', (req, res) => {
         html += '<h3>Список пользователей</h3>';
         
         if (users.length > 0) {
-            html += '<table><tr><th>ID</th><th>Имя</th><th>Email</th><th>Пол</th><th>Последний вход</th></tr>';
+            html += '<table><tr><th>ID</th><th>Имя</th><th>Email</th><th>Аватар</th><th>Пол</th><th>Последний вход</th></tr>';
             
             users.forEach(user => {
                 html += '<tr>';
                 html += '<td>' + user.id + '</td>';
                 html += '<td><strong>' + (user.first_name || '') + ' ' + (user.last_name || '') + '</strong></td>';
                 html += '<td>' + (user.email || 'no-email') + '</td>';
+                html += '<td>' + (user.avatar_url ? '✅ Есть' : '❌ Нет') + '</td>';
                 html += '<td>' + (user.sex === 'male' ? 'Мужской' : user.sex === 'female' ? 'Женский' : 'Не указан') + '</td>';
                 html += '<td>' + new Date(user.last_login).toLocaleString('ru-RU') + '</td>';
                 html += '</tr>';
@@ -234,7 +266,8 @@ app.get('/api/test', (req, res) => {
         message: 'Сервер работает!',
         version: '1.0',
         has_database: true,
-        admin_panel: '/admin'
+        admin_panel: '/admin',
+        features: 'avatar_support' // 🆕 Поддержка аватарок
     });
 });
 
@@ -245,5 +278,6 @@ app.listen(PORT, () => {
     console.log(`📍 Порт: ${PORT}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
     console.log(`📍 Админ-панель: http://localhost:${PORT}/admin`);
+    console.log('🆕 Поддержка аватарок: ВКЛЮЧЕНА');
     console.log('==================================');
 });
