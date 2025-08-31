@@ -1,4 +1,4 @@
-console.log('🟢 Запускаюсь...');
+console.log('🟢 Запускаюся...');
 
 const express = require('express');
 const axios = require('axios');
