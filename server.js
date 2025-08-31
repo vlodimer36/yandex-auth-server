@@ -14,19 +14,36 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// Функция для сохранения пользователей в файл
+// 📁 Путь к файлу с пользователями (в постоянном хранилище)
+const usersFilePath = path.join(__dirname, 'users.json');
+
+// 🔄 Функция для загрузки пользователей
+function loadUsers() {
+    try {
+        if (fs.existsSync(usersFilePath)) {
+            const data = fs.readFileSync(usersFilePath, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки пользователей:', error);
+    }
+    return [];
+}
+
+// 💾 Функция для сохранения пользователей
+function saveUsers(users) {
+    try {
+        fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2));
+        console.log('💾 Пользователи сохранены');
+    } catch (error) {
+        console.error('❌ Ошибка сохранения пользователей:', error);
+    }
+}
+
+// 👤 Функция для сохранения/обновления пользователя
 function saveUserToFile(userData) {
     try {
-        const filePath = path.join(__dirname, 'users.json');
-        let users = [];
-        
-        // Читаем существующих пользователей
-        if (fs.existsSync(filePath)) {
-            const data = fs.readFileSync(filePath, 'utf8');
-            users = JSON.parse(data);
-        }
-        
-        // Получаем email (исправляем ошибку с undefined)
+        const users = loadUsers();
         const userEmail = userData.default_email || userData.emails?.[0] || 'no-email';
         
         // Проверяем, есть ли уже такой пользователь
@@ -55,8 +72,7 @@ function saveUserToFile(userData) {
             });
         }
         
-        // Сохраняем обратно в файл
-        fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
+        saveUsers(users);
         console.log('💾 Пользователь сохранен:', userEmail);
         
     } catch (error) {
@@ -64,7 +80,7 @@ function saveUserToFile(userData) {
     }
 }
 
-// Маршрут для обмена кода на токен
+// 🚀 Маршрут для обмена кода на токен
 app.post('/api/yandex-auth', async (req, res) => {
     console.log('📨 Получен запрос на авторизацию');
     
@@ -113,7 +129,7 @@ app.post('/api/yandex-auth', async (req, res) => {
 
         const userData = userResponse.data;
 
-        // 🆕 ПОЛУЧАЕМ ИНФОРМАЦИЮ ОБ АВАТАРКЕ
+        // 🆕 ПОЛУЧАЕМ АВАТАРКУ
         let avatarUrl = null;
         try {
             const avatarInfoResponse = await axios.get('https://login.yandex.ru/info', {
@@ -127,19 +143,15 @@ app.post('/api/yandex-auth', async (req, res) => {
 
             const avatarInfo = avatarInfoResponse.data;
             
-            // Проверяем, есть ли аватарка у пользователя
             if (avatarInfo && avatarInfo.default_avatar_id && avatarInfo.default_avatar_id !== '0') {
-                // Формируем URL аватарки (islands-200 - размер 200x200)
                 avatarUrl = `https://avatars.yandex.net/get-yapic/${avatarInfo.default_avatar_id}/islands-200`;
-                console.log('✅ Аватарка найдена:', avatarUrl);
-            } else {
-                console.log('ℹ️ У пользователя нет аватарки в Яндекс аккаунте');
+                console.log('✅ Аватарка найдена');
             }
         } catch (avatarError) {
-            console.log('⚠️ Не удалось получить аватарку:', avatarError.message);
+            console.log('⚠️ Аватарка недоступна');
         }
 
-        // ✅ СОХРАНЯЕМ ПОЛЬЗОВАТЕЛЯ В ФАЙЛ
+        // ✅ СОХРАНЯЕМ ПОЛЬЗОВАТЕЛЯ
         saveUserToFile({
             ...userData,
             avatar_url: avatarUrl
@@ -155,7 +167,7 @@ app.post('/api/yandex-auth', async (req, res) => {
                 first_name: userData.first_name,
                 last_name: userData.last_name,
                 sex: userData.sex,
-                avatar_url: avatarUrl // 🆕 Добавляем URL аватарки
+                avatar_url: avatarUrl
             }
         });
 
@@ -168,87 +180,76 @@ app.post('/api/yandex-auth', async (req, res) => {
     }
 });
 
-// 📊 Маршрут: Посмотреть всех пользователей (JSON)
+// 📊 Маршрут: Посмотреть всех пользователей
 app.get('/api/users', (req, res) => {
     try {
-        const filePath = path.join(__dirname, 'users.json');
-        if (fs.existsSync(filePath)) {
-            const data = fs.readFileSync(filePath, 'utf8');
-            const users = JSON.parse(data);
-            res.json({ success: true, users: users });
-        } else {
-            res.json({ success: true, users: [], message: 'Пока нет пользователей' });
-        }
+        const users = loadUsers();
+        res.json({ success: true, users: users });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// 📈 Маршрут: Получить статистику
+// 📈 Маршрут: Статистика
 app.get('/api/stats', (req, res) => {
     try {
-        const filePath = path.join(__dirname, 'users.json');
-        if (fs.existsSync(filePath)) {
-            const data = fs.readFileSync(filePath, 'utf8');
-            const users = JSON.parse(data);
-            res.json({ 
-                success: true, 
-                total_users: users.length,
-                last_user: users.length > 0 ? users[users.length - 1] : null
-            });
-        } else {
-            res.json({ success: true, total_users: 0 });
-        }
+        const users = loadUsers();
+        res.json({ 
+            success: true, 
+            total_users: users.length,
+            last_user: users.length > 0 ? users[users.length - 1] : null
+        });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
 });
 
-// 🔐 АДМИН-ПАНЕЛЬ - УПРОЩЕННАЯ ВЕРСИЯ
+// 🔐 АДМИН-ПАНЕЛЬ
 app.get('/admin', (req, res) => {
     try {
-        const filePath = path.join(__dirname, 'users.json');
-        let users = [];
-        
-        if (fs.existsSync(filePath)) {
-            const data = fs.readFileSync(filePath, 'utf8');
-            users = JSON.parse(data);
-        }
+        const users = loadUsers();
 
-        // Простая HTML-страница без сложных шаблонных строк
-        let html = '<!DOCTYPE html><html><head><title>Панель администратора</title>';
-        html += '<meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;margin:20px;}';
-        html += '.container{max-width:1200px;margin:0 auto;}h1{color:#333;}';
-        html += 'table{width:100%;border-collapse:collapse;}th,td{padding:10px;border:1px solid #ddd;}';
-        html += 'th{background:#f5f5f5;}</style></head><body>';
-        html += '<div class="container"><h1>Панель администратора</h1>';
-        
-        html += '<h3>Статистика</h3>';
+        let html = `<!DOCTYPE html><html><head><title>Панель администратора</title>
+        <meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;margin:20px;background:#f5f5f5;}
+        .container{max-width:1200px;margin:0 auto;background:white;padding:30px;border-radius:12px;box-shadow:0 2px 10px rgba(0,0,0,0.1);}
+        h1{color:#333;text-align:center;}h3{color:#444;}.stats{background:#e3f2fd;padding:20px;border-radius:8px;margin-bottom:25px;}
+        table{width:100%;border-collapse:collapse;margin-top:20px;}th,td{padding:12px;text-align:left;border-bottom:1px solid #ddd;}
+        th{background:#2196F3;color:white;}tr:hover{background:#f5f5f5;}.avatar-cell{text-align:center;}
+        .avatar-img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
+        .no-avatar{width:40px;height:40px;border-radius:50%;background:#667eea;color:white;display:flex;align-items:center;justify-content:center;
+        font-weight:bold;font-size:14px;margin:0 auto;}</style></head><body><div class="container>`;
+
+        html += '<h1>👨‍💼 Панель администратора</h1><div class="stats"><h3>📊 Статистика</h3>';
         html += '<p>Всего пользователей: <strong>' + users.length + '</strong></p>';
         
         if (users.length > 0) {
             html += '<p>Последний вход: <strong>' + new Date(users[users.length-1].last_login).toLocaleString('ru-RU') + '</strong></p>';
         }
         
-        html += '<h3>Список пользователей</h3>';
+        html += '</div><h3>👥 Список пользователей</h3>';
         
         if (users.length > 0) {
-            html += '<table><tr><th>ID</th><th>Имя</th><th>Email</th><th>Аватар</th><th>Пол</th><th>Последний вход</th></tr>';
+            html += '<table><tr><th>ID</th><th>Аватар</th><th>Имя</th><th>Email</th><th>Пол</th><th>Последний вход</th></tr>';
             
             users.forEach(user => {
+                const initials = (user.first_name?.[0] || '') + (user.last_name?.[0] || '');
                 html += '<tr>';
-                html += '<td>' + user.id + '</td>';
+                html += '<td><code>' + user.id + '</code></td>';
+                html += '<td class="avatar-cell">' + 
+                    (user.avatar_url ? 
+                        '<img src="' + user.avatar_url + '" class="avatar-img" alt="Avatar">' : 
+                        '<div class="no-avatar">' + initials + '</div>') + 
+                    '</td>';
                 html += '<td><strong>' + (user.first_name || '') + ' ' + (user.last_name || '') + '</strong></td>';
                 html += '<td>' + (user.email || 'no-email') + '</td>';
-                html += '<td>' + (user.avatar_url ? '✅ Есть' : '❌ Нет') + '</td>';
-                html += '<td>' + (user.sex === 'male' ? 'Мужской' : user.sex === 'female' ? 'Женский' : 'Не указан') + '</td>';
+                html += '<td>' + (user.sex === 'male' ? '♂ Мужской' : user.sex === 'female' ? '♀ Женский' : 'Не указан') + '</td>';
                 html += '<td>' + new Date(user.last_login).toLocaleString('ru-RU') + '</td>';
                 html += '</tr>';
             });
             
             html += '</table>';
         } else {
-            html += '<p>Пока нет пользователей</p>';
+            html += '<p style="text-align:center;color:#666;padding:40px;">Пока нет пользователей</p>';
         }
         
         html += '</div></body></html>';
@@ -256,28 +257,30 @@ app.get('/admin', (req, res) => {
         res.send(html);
 
     } catch (error) {
-        res.status(500).send('Ошибка загрузки админ-панели: ' + error.message);
+        res.status(500).send('Ошибка загрузки админ-панели');
     }
 });
 
-// Тестовый маршрут
+// 🧪 Тестовый маршрут
 app.get('/api/test', (req, res) => {
+    const users = loadUsers();
     res.json({ 
         message: 'Сервер работает!',
-        version: '1.0',
-        has_database: true,
-        admin_panel: '/admin',
-        features: 'avatar_support' // 🆕 Поддержка аватарок
+        version: '2.0',
+        total_users: users.length,
+        persistent_storage: true
     });
 });
 
-// Запуск сервера
+// 🚀 Запуск сервера
 app.listen(PORT, () => {
+    const users = loadUsers();
     console.log('==================================');
     console.log('🚀 СЕРВЕР ЗАПУЩЕН!');
     console.log(`📍 Порт: ${PORT}`);
+    console.log(`👥 Пользователей в базе: ${users.length}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
-    console.log(`📍 Админ-панель: http://localhost:${PORT}/admin`);
-    console.log('🆕 Поддержка аватарок: ВКЛЮЧЕНА');
+    console.log(`📍 Админ: http://localhost:${PORT}/admin`);
+    console.log('💾 Постоянное хранилище: ВКЛЮЧЕНО');
     console.log('==================================');
 });
