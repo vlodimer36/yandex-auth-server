@@ -117,7 +117,7 @@ app.post('/api/yandex-auth', async (req, res) => {
             throw new Error('Failed to get access token');
         }
 
-        // Получаем данные пользователя
+        // 🔥 ВСЕ ДАННЫЕ В ОДНОМ ЗАПРОСЕ!
         const userResponse = await axios.get('https://login.yandex.ru/info', {
             headers: {
                 'Authorization': `OAuth ${accessToken}`
@@ -128,32 +128,15 @@ app.post('/api/yandex-auth', async (req, res) => {
         });
 
         const userData = userResponse.data;
+        console.log('📊 Данные пользователя:', userData);
 
-        // 🆕 ПОЛУЧАЕМ АВАТАРКУ из Яндекс аккаунта
+        // 🆕 ПОЛУЧАЕМ АВАТАРКУ из одного запроса
         let avatarUrl = null;
-        try {
-            // Второй запрос для получения информации об аватарке
-            const avatarInfoResponse = await axios.get('https://login.yandex.ru/info', {
-                headers: {
-                    'Authorization': `OAuth ${accessToken}`
-                },
-                params: {
-                    'format': 'json'
-                }
-            });
-
-            const avatarInfo = avatarInfoResponse.data;
-            
-            // Проверяем, есть ли аватарка у пользователя
-            if (avatarInfo && avatarInfo.default_avatar_id && avatarInfo.default_avatar_id !== '0') {
-                // Формируем URL аватарки (islands-200 - оптимальный размер)
-                avatarUrl = `https://avatars.yandex.net/get-yapic/${avatarInfo.default_avatar_id}/islands-200`;
-                console.log('✅ Аватарка найдена');
-            } else {
-                console.log('ℹ️ У пользователя нет аватарки в Яндекс аккаунте');
-            }
-        } catch (avatarError) {
-            console.log('⚠️ Не удалось получить аватарку:', avatarError.message);
+        if (userData && userData.default_avatar_id && userData.default_avatar_id !== '0') {
+            avatarUrl = `https://avatars.yandex.net/get-yapic/${userData.default_avatar_id}/islands-200`;
+            console.log('✅ Аватарка найдена:', avatarUrl);
+        } else {
+            console.log('ℹ️ У пользователя нет аватарки в Яндекс аккаунте');
         }
 
         // ✅ СОХРАНЯЕМ ПОЛЬЗОВАТЕЛЯ
@@ -177,10 +160,11 @@ app.post('/api/yandex-auth', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Ошибка авторизации:', error);
+        console.error('❌ Ошибка авторизации:', error.response?.data || error.message);
         res.status(500).json({
             success: false,
-            error: 'Authentication failed'
+            error: 'Authentication failed',
+            details: error.response?.data || error.message
         });
     }
 });
