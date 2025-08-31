@@ -3,14 +3,56 @@ console.log('🟢 Запускаюсь...');
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const fs = require('fs');
+const path = require('path');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 10000;
 
 // Middleware
 app.use(cors());
 app.use(express.json());
+
+// Функция для сохранения пользователей в файл
+function saveUserToFile(userData) {
+    try {
+        const filePath = path.join(__dirname, 'users.json');
+        let users = [];
+        
+        // Читаем существующих пользователей
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            users = JSON.parse(data);
+        }
+        
+        // Проверяем, есть ли уже такой пользователь
+        const existingUserIndex = users.findIndex(u => u.id === userData.id);
+        
+        if (existingUserIndex !== -1) {
+            // Обновляем существующего
+            users[existingUserIndex] = {
+                ...users[existingUserIndex],
+                ...userData,
+                last_login: new Date().toISOString()
+            };
+        } else {
+            // Добавляем нового
+            users.push({
+                ...userData,
+                first_login: new Date().toISOString(),
+                last_login: new Date().toISOString()
+            });
+        }
+        
+        // Сохраняем обратно в файл
+        fs.writeFileSync(filePath, JSON.stringify(users, null, 2));
+        console.log('💾 Пользователь сохранен:', userData.email);
+        
+    } catch (error) {
+        console.error('❌ Ошибка сохранения:', error);
+    }
+}
 
 // Маршрут для обмена кода на токен
 app.post('/api/yandex-auth', async (req, res) => {
@@ -20,24 +62,19 @@ app.post('/api/yandex-auth', async (req, res) => {
         const { code } = req.body;
 
         if (!code) {
-            console.log('❌ Ошибка: нет кода авторизации');
             return res.status(400).json({
                 success: false,
                 error: 'Authorization code is required'
             });
         }
 
-        console.log('🔐 Получен код:', code);
-
-        // Параметры для запроса к Яндекс
+        // Получаем access token от Яндекс
         const params = new URLSearchParams();
         params.append('grant_type', 'authorization_code');
         params.append('code', code);
         params.append('client_id', process.env.CLIENT_ID);
         params.append('client_secret', process.env.CLIENT_SECRET);
 
-        // Получаем access token от Яндекс
-        console.log('🔄 Обмениваю код на токен...');
         const tokenResponse = await axios.post(
             'https://oauth.yandex.ru/token',
             params,
@@ -49,14 +86,12 @@ app.post('/api/yandex-auth', async (req, res) => {
         );
 
         const accessToken = tokenResponse.data.access_token;
-        console.log('✅ Токен получен:', accessToken ? 'успешно' : 'не получен');
 
         if (!accessToken) {
             throw new Error('Failed to get access token');
         }
 
         // Получаем данные пользователя
-        console.log('👤 Запрашиваю данные пользователя...');
         const userResponse = await axios.get('https://login.yandex.ru/info', {
             headers: {
                 'Authorization': `OAuth ${accessToken}`
@@ -67,9 +102,11 @@ app.post('/api/yandex-auth', async (req, res) => {
         });
 
         const userData = userResponse.data;
-        console.log('✅ Данные пользователя получены:', userData.login);
+        
+        // ✅ СОХРАНЯЕМ ПОЛЬЗОВАТЕЛЯ В ФАЙЛ
+        saveUserToFile(userData);
 
-        // Успешный ответ
+        // Отправляем ответ
         res.json({
             success: true,
             user: {
@@ -83,30 +120,66 @@ app.post('/api/yandex-auth', async (req, res) => {
         });
 
     } catch (error) {
-        console.error('❌ Ошибка авторизации:', error.response?.data || error.message);
+        console.error('❌ Ошибка авторизации:', error);
         res.status(500).json({
             success: false,
-            error: 'Authentication failed',
-            details: error.response?.data || error.message
+            error: 'Authentication failed'
         });
+    }
+});
+
+// 📊 НОВЫЙ МАРШРУТ: Посмотреть всех пользователей
+app.get('/api/users', (req, res) => {
+    try {
+        const filePath = path.join(__dirname, 'users.json');
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            const users = JSON.parse(data);
+            res.json({ success: true, users: users });
+        } else {
+            res.json({ success: true, users: [], message: 'Пока нет пользователей' });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 📋 НОВЫЙ МАРШРУТ: Получить количество пользователей
+app.get('/api/stats', (req, res) => {
+    try {
+        const filePath = path.join(__dirname, 'users.json');
+        if (fs.existsSync(filePath)) {
+            const data = fs.readFileSync(filePath, 'utf8');
+            const users = JSON.parse(data);
+            res.json({ 
+                success: true, 
+                total_users: users.length,
+                last_user: users.length > 0 ? users[users.length - 1] : null
+            });
+        } else {
+            res.json({ success: true, total_users: 0 });
+        }
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
     }
 });
 
 // Тестовый маршрут
 app.get('/api/test', (req, res) => {
-    console.log('✅ Кто-то зашел на /api/test');
     res.json({ 
-        message: 'Сервер работает! Ура!',
-        client_id: process.env.CLIENT_ID ? 'настроен' : 'не настроен'
+        message: 'Сервер работает!',
+        version: '1.0',
+        has_database: true
     });
 });
 
-// Запускаем сервер
+// Запуск сервера
 app.listen(PORT, '0.0.0.0', () => {
     console.log('==================================');
     console.log('🚀 СЕРВЕР ЗАПУЩЕН!');
     console.log(`📍 Порт: ${PORT}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
-    console.log(`📍 Для авторизации: POST http://localhost:${PORT}/api/yandex-auth`);
+    console.log(`📍 Пользователи: http://localhost:${PORT}/api/users`);
+    console.log(`📍 Статистика: http://localhost:${PORT}/api/stats`);
     console.log('==================================');
 });
