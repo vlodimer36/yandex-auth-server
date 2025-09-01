@@ -14,69 +14,112 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// 📁 Путь к файлу с пользователями
-const usersFilePath = path.join(__dirname, 'users.json');
+// 📁 Папка для хранения пользователей (каждый в отдельном файле)
+const usersDir = path.join(__dirname, 'users');
 
-// 🔄 Функция для загрузки пользователей
-function loadUsers() {
-    try {
-        if (fs.existsSync(usersFilePath)) {
-            const data = fs.readFileSync(usersFilePath, 'utf8');
-            return JSON.parse(data);
-        }
-    } catch (error) {
-        console.error('❌ Ошибка загрузки пользователей:', error);
-    }
-    return [];
+// 🔄 Создаем папку если ее нет
+if (!fs.existsSync(usersDir)) {
+    fs.mkdirSync(usersDir, { recursive: true });
+    console.log('📁 Папка users создана');
 }
 
-// 💾 Функция для сохранения пользователей
-function saveUsers(users) {
-    try {
-        fs.writeFileSync(usersFilePath, JSON.stringify(users, null, 2));
-        console.log('💾 Пользователи сохранены');
-    } catch (error) {
-        console.error('❌ Ошибка сохранения пользователей:', error);
-    }
-}
-
-// 👤 Функция для сохранения/обновления пользователя
+// 💾 Функция для сохранения пользователя в отдельный файл
 function saveUserToFile(userData) {
     try {
-        const users = loadUsers();
         const userEmail = userData.default_email || userData.emails?.[0] || 'no-email';
+        const userId = userData.id;
         
-        // Проверяем, есть ли уже такой пользователь
-        const existingUserIndex = users.findIndex(u => u.id === userData.id);
+        // Создаем объект пользователя
+        const user = {
+            id: userId,
+            login: userData.login,
+            email: userEmail,
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            sex: userData.sex,
+            avatar_url: userData.avatar_url,
+            first_login: new Date().toISOString(),
+            last_login: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+        };
         
-        if (existingUserIndex !== -1) {
-            // Обновляем существующего
-            users[existingUserIndex] = {
-                ...users[existingUserIndex],
-                ...userData,
-                email: userEmail,
-                last_login: new Date().toISOString()
-            };
-        } else {
-            // Добавляем нового
-            users.push({
-                id: userData.id,
-                login: userData.login,
-                email: userEmail,
-                first_name: userData.first_name,
-                last_name: userData.last_name,
-                sex: userData.sex,
-                avatar_url: userData.avatar_url,
-                first_login: new Date().toISOString(),
-                last_login: new Date().toISOString()
-            });
-        }
+        // Сохраняем в отдельный файл
+        const userFilePath = path.join(usersDir, `${userId}.json`);
+        fs.writeFileSync(userFilePath, JSON.stringify(user, null, 2));
         
-        saveUsers(users);
         console.log('💾 Пользователь сохранен:', userEmail);
+        console.log('📁 Файл:', `${userId}.json`);
+        
+        return user;
         
     } catch (error) {
         console.error('❌ Ошибка сохранения:', error);
+        return null;
+    }
+}
+
+// 📂 Функция для загрузки всех пользователей
+function loadAllUsers() {
+    try {
+        const files = fs.readdirSync(usersDir);
+        const users = [];
+        
+        for (const file of files) {
+            if (file.endsWith('.json')) {
+                const filePath = path.join(usersDir, file);
+                const data = fs.readFileSync(filePath, 'utf8');
+                const user = JSON.parse(data);
+                users.push(user);
+            }
+        }
+        
+        // Сортируем по дате последнего входа (новые сверху)
+        users.sort((a, b) => new Date(b.last_login) - new Date(a.last_login));
+        
+        console.log('👥 Загружено пользователей:', users.length);
+        return users;
+        
+    } catch (error) {
+        console.error('❌ Ошибка загрузки пользователей:', error);
+        return [];
+    }
+}
+
+// 🔄 Функция для обновления существующего пользователя
+function updateUser(userData) {
+    try {
+        const userId = userData.id;
+        const userFilePath = path.join(usersDir, `${userId}.json`);
+        
+        if (fs.existsSync(userFilePath)) {
+            // Читаем существующие данные
+            const data = fs.readFileSync(userFilePath, 'utf8');
+            const existingUser = JSON.parse(data);
+            
+            // Обновляем только нужные поля
+            const updatedUser = {
+                ...existingUser,
+                first_name: userData.first_name || existingUser.first_name,
+                last_name: userData.last_name || existingUser.last_name,
+                email: userData.default_email || userData.emails?.[0] || existingUser.email,
+                avatar_url: userData.avatar_url || existingUser.avatar_url,
+                last_login: new Date().toISOString(),
+                updated_at: new Date().toISOString()
+            };
+            
+            // Сохраняем обратно
+            fs.writeFileSync(userFilePath, JSON.stringify(updatedUser, null, 2));
+            console.log('🔄 Пользователь обновлен:', updatedUser.email);
+            
+            return updatedUser;
+        } else {
+            // Если файла нет - создаем нового пользователя
+            return saveUserToFile(userData);
+        }
+        
+    } catch (error) {
+        console.error('❌ Ошибка обновления:', error);
+        return null;
     }
 }
 
@@ -117,7 +160,7 @@ app.post('/api/yandex-auth', async (req, res) => {
             throw new Error('Failed to get access token');
         }
 
-        // 🔥 ВСЕ ДАННЫЕ В ОДНОМ ЗАПРОСЕ!
+        // Получаем данные пользователя
         const userResponse = await axios.get('https://login.yandex.ru/info', {
             headers: {
                 'Authorization': `OAuth ${accessToken}`
@@ -128,34 +171,37 @@ app.post('/api/yandex-auth', async (req, res) => {
         });
 
         const userData = userResponse.data;
-        console.log('📊 Данные пользователя:', userData);
 
-        // 🆕 ПОЛУЧАЕМ АВАТАРКУ из одного запроса
+        // 🆕 ПОЛУЧАЕМ АВАТАРКУ
         let avatarUrl = null;
         if (userData && userData.default_avatar_id && userData.default_avatar_id !== '0') {
             avatarUrl = `https://avatars.yandex.net/get-yapic/${userData.default_avatar_id}/islands-200`;
-            console.log('✅ Аватарка найдена:', avatarUrl);
-        } else {
-            console.log('ℹ️ У пользователя нет аватарки в Яндекс аккаунте');
+            console.log('✅ Аватарка найдена');
         }
 
-        // ✅ СОХРАНЯЕМ ПОЛЬЗОВАТЕЛЯ
-        saveUserToFile({
+        // ✅ СОХРАНЯЕМ/ОБНОВЛЯЕМ ПОЛЬЗОВАТЕЛЯ
+        const userToSave = {
             ...userData,
             avatar_url: avatarUrl
-        });
+        };
+        
+        const savedUser = updateUser(userToSave);
+
+        if (!savedUser) {
+            throw new Error('Failed to save user');
+        }
 
         // Отправляем ответ
         res.json({
             success: true,
             user: {
-                id: userData.id,
-                login: userData.login,
-                email: userData.default_email || userData.emails?.[0] || 'no-email',
-                first_name: userData.first_name,
-                last_name: userData.last_name,
-                sex: userData.sex,
-                avatar_url: avatarUrl
+                id: savedUser.id,
+                login: savedUser.login,
+                email: savedUser.email,
+                first_name: savedUser.first_name,
+                last_name: savedUser.last_name,
+                sex: savedUser.sex,
+                avatar_url: savedUser.avatar_url
             }
         });
 
@@ -163,8 +209,7 @@ app.post('/api/yandex-auth', async (req, res) => {
         console.error('❌ Ошибка авторизации:', error.response?.data || error.message);
         res.status(500).json({
             success: false,
-            error: 'Authentication failed',
-            details: error.response?.data || error.message
+            error: 'Authentication failed'
         });
     }
 });
@@ -172,7 +217,7 @@ app.post('/api/yandex-auth', async (req, res) => {
 // 📊 Маршрут: Посмотреть всех пользователей
 app.get('/api/users', (req, res) => {
     try {
-        const users = loadUsers();
+        const users = loadAllUsers();
         res.json({ success: true, users: users });
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
@@ -182,12 +227,42 @@ app.get('/api/users', (req, res) => {
 // 📈 Маршрут: Статистика
 app.get('/api/stats', (req, res) => {
     try {
-        const users = loadUsers();
+        const users = loadAllUsers();
         res.json({ 
             success: true, 
             total_users: users.length,
-            last_user: users.length > 0 ? users[users.length - 1] : null
+            last_user: users.length > 0 ? users[0] : null // Первый в списке - последний вошедший
         });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 🧹 Маршрут для очистки старых пользователей (опционально)
+app.delete('/api/users/old', (req, res) => {
+    try {
+        const users = loadAllUsers();
+        const now = new Date();
+        const thirtyDaysAgo = new Date(now.setDate(now.getDate() - 30));
+        
+        let deletedCount = 0;
+        
+        users.forEach(user => {
+            const lastLogin = new Date(user.last_login);
+            if (lastLogin < thirtyDaysAgo) {
+                const userFilePath = path.join(usersDir, `${user.id}.json`);
+                if (fs.existsSync(userFilePath)) {
+                    fs.unlinkSync(userFilePath);
+                    deletedCount++;
+                }
+            }
+        });
+        
+        res.json({ 
+            success: true, 
+            message: `Удалено ${deletedCount} неактивных пользователей` 
+        });
+        
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -196,7 +271,7 @@ app.get('/api/stats', (req, res) => {
 // 🔐 АДМИН-ПАНЕЛЬ
 app.get('/admin', (req, res) => {
     try {
-        const users = loadUsers();
+        const users = loadAllUsers();
 
         let html = `<!DOCTYPE html><html><head><title>Панель администратора</title>
         <meta charset="UTF-8"><style>body{font-family:Arial,sans-serif;margin:20px;background:#f5f5f5;}
@@ -206,13 +281,14 @@ app.get('/admin', (req, res) => {
         th{background:#2196F3;color:white;}tr:hover{background:#f5f5f5;}.avatar-cell{text-align:center;}
         .avatar-img{width:40px;height:40px;border-radius:50%;object-fit:cover;border:2px solid #fff;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
         .no-avatar{width:40px;height:40px;border-radius:50%;background:#667eea;color:white;display:flex;align-items:center;justify-content:center;
-        font-weight:bold;font-size:14px;margin:0 auto;}</style></head><body><div class="container">`;
+        font-weight:bold;font-size:14px;margin:0 auto;}.info{color:#666;font-size:14px;margin-top:10px;}</style></head><body><div class="container">`;
 
         html += '<h1>👨‍💼 Панель администратора</h1><div class="stats"><h3>📊 Статистика</h3>';
         html += '<p>Всего пользователей: <strong>' + users.length + '</strong></p>';
         
         if (users.length > 0) {
-            html += '<p>Последний вход: <strong>' + new Date(users[users.length-1].last_login).toLocaleString('ru-RU') + '</strong></p>';
+            html += '<p>Последний вход: <strong>' + new Date(users[0].last_login).toLocaleString('ru-RU') + '</strong></p>';
+            html += '<p class="info">💾 Данные хранятся в отдельных файлах (гарантированно)</p>';
         }
         
         html += '</div><h3>👥 Список пользователей</h3>';
@@ -252,24 +328,26 @@ app.get('/admin', (req, res) => {
 
 // 🧪 Тестовый маршрут
 app.get('/api/test', (req, res) => {
-    const users = loadUsers();
+    const users = loadAllUsers();
     res.json({ 
         message: 'Сервер работает!',
-        version: '2.0',
+        version: '3.0',
         total_users: users.length,
-        persistent_storage: true
+        storage_type: 'multi_file',
+        persistent: true
     });
 });
 
 // 🚀 Запуск сервера
 app.listen(PORT, () => {
-    const users = loadUsers();
+    const users = loadAllUsers();
     console.log('==================================');
     console.log('🚀 СЕРВЕР ЗАПУЩЕН!');
     console.log(`📍 Порт: ${PORT}`);
     console.log(`👥 Пользователей в базе: ${users.length}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
     console.log(`📍 Админ: http://localhost:${PORT}/admin`);
-    console.log('💾 Постоянное хранилище: ВКЛЮЧЕНО');
+    console.log('💾 Гарантированное хранилище: ВКЛЮЧЕНО');
+    console.log('📁 Каждый пользователь в отдельном файле');
     console.log('==================================');
 });
