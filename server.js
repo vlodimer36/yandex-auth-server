@@ -3,6 +3,7 @@ console.log('🟢 Сервер запускается...');
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
+const fs = require('fs');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -11,8 +12,31 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());
 app.use(express.json());
 
-// 📊 Хранилище пользователей в памяти (на время работы сервера)
-let users = [];
+// 📁 Файл для хранения пользователей
+const USERS_FILE = 'users.json';
+
+// 📊 Загрузка пользователей из файла
+function loadUsers() {
+    try {
+        if (fs.existsSync(USERS_FILE)) {
+            const data = fs.readFileSync(USERS_FILE, 'utf8');
+            return JSON.parse(data);
+        }
+    } catch (error) {
+        console.error('❌ Ошибка загрузки пользователей:', error);
+    }
+    return [];
+}
+
+// 💾 Сохранение пользователей в файл
+function saveUsers(users) {
+    try {
+        fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+        console.log('💾 Пользователи сохранены в файл');
+    } catch (error) {
+        console.error('❌ Ошибка сохранения пользователей:', error);
+    }
+}
 
 // 🚀 Основной маршрут авторизации
 app.post('/api/yandex-auth', async (req, res) => {
@@ -57,25 +81,32 @@ app.post('/api/yandex-auth', async (req, res) => {
 
         const userData = userResponse.data;
 
-        // Сохраняем пользователя
+        // Загружаем текущих пользователей
+        const users = loadUsers();
+        
+        // Создаем объект пользователя
         const user = {
             id: userData.id,
             login: userData.login,
             email: userData.default_email || 'no-email',
             first_name: userData.first_name,
             last_name: userData.last_name,
+            sex: userData.sex,
             last_login: new Date().toLocaleString('ru-RU')
         };
 
-        // Добавляем/обновляем в памяти
+        // Проверяем, есть ли уже такой пользователь
         const existingIndex = users.findIndex(u => u.id === userData.id);
         if (existingIndex !== -1) {
-            users[existingIndex] = user;
+            users[existingIndex] = user; // Обновляем
         } else {
-            users.push(user);
+            users.push(user); // Добавляем нового
         }
 
-        console.log('✅ Пользователь авторизован:', user.email);
+        // Сохраняем в файл
+        saveUsers(users);
+
+        console.log('✅ Пользователь сохранен:', user.email);
 
         // Успешный ответ
         res.json({
@@ -102,11 +133,13 @@ app.post('/api/yandex-auth', async (req, res) => {
 
 // 📊 Получить всех пользователей
 app.get('/api/users', (req, res) => {
+    const users = loadUsers();
     res.json({ success: true, users });
 });
 
 // 📈 Статистика
 app.get('/api/stats', (req, res) => {
+    const users = loadUsers();
     res.json({ 
         success: true, 
         total_users: users.length,
@@ -116,15 +149,19 @@ app.get('/api/stats', (req, res) => {
 
 // 🧪 Тестовый маршрут
 app.get('/api/test', (req, res) => {
+    const users = loadUsers();
     res.json({ 
         success: true,
         message: 'Сервер работает! ✅',
-        users_count: users.length
+        users_count: users.length,
+        storage: 'file_system'
     });
 });
 
 // 🔐 Админ панель
 app.get('/admin', (req, res) => {
+    const users = loadUsers();
+    
     const html = `
 <!DOCTYPE html>
 <html>
@@ -171,27 +208,15 @@ app.get('/admin', (req, res) => {
     res.send(html);
 });
 
-// 🏠 Корневой маршрут
-app.get('/', (req, res) => {
-    res.json({
-        message: 'Yandex Auth Server',
-        status: 'working',
-        endpoints: {
-            test: '/api/test',
-            auth: '/api/yandex-auth (POST)',
-            users: '/api/users',
-            stats: '/api/stats',
-            admin: '/admin'
-        }
-    });
-});
-
 // 🚀 Запуск сервера
 app.listen(PORT, () => {
+    const users = loadUsers();
     console.log('==================================');
     console.log('🚀 СЕРВЕР ЗАПУЩЕН!');
     console.log(`📍 Порт: ${PORT}`);
+    console.log(`👥 Пользователей: ${users.length}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
     console.log(`📍 Админ: http://localhost:${PORT}/admin`);
+    console.log('💾 Сохранение в файл: ВКЛЮЧЕНО');
     console.log('==================================');
 });
