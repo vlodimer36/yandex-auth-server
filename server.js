@@ -231,8 +231,42 @@ app.get('/api/stats', (req, res) => {
         res.json({ 
             success: true, 
             total_users: users.length,
-            last_user: users.length > 0 ? users[0] : null // Первый в списке - последний вошедший
+            last_user: users.length > 0 ? users[0] : null
         });
+    } catch (error) {
+        res.status(500).json({ success: false, error: error.message });
+    }
+});
+
+// 📂 Маршрут для просмотра файлов пользователей
+app.get('/api/debug/files', (req, res) => {
+    try {
+        const files = fs.readdirSync(usersDir);
+        const fileInfo = [];
+        
+        for (const file of files) {
+            if (file.endsWith('.json')) {
+                const filePath = path.join(usersDir, file);
+                const stats = fs.statSync(filePath);
+                const data = fs.readFileSync(filePath, 'utf8');
+                const user = JSON.parse(data);
+                
+                fileInfo.push({
+                    file: file,
+                    size: stats.size + ' bytes',
+                    created: new Date(stats.birthtime).toLocaleString('ru-RU'),
+                    modified: new Date(stats.mtime).toLocaleString('ru-RU'),
+                    user: user.email
+                });
+            }
+        }
+        
+        res.json({
+            success: true,
+            total_files: fileInfo.length,
+            files: fileInfo
+        });
+        
     } catch (error) {
         res.status(500).json({ success: false, error: error.message });
     }
@@ -347,6 +381,7 @@ app.listen(PORT, () => {
     console.log(`👥 Пользователей в базе: ${users.length}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
     console.log(`📍 Админ: http://localhost:${PORT}/admin`);
+    console.log(`📍 Файлы: http://localhost:${PORT}/api/debug/files`);
     console.log('💾 Гарантированное хранилище: ВКЛЮЧЕНО');
     console.log('📁 Каждый пользователь в отдельном файле');
     console.log('==================================');
