@@ -3,87 +3,16 @@ console.log('🟢 Сервер запускается...');
 const express = require('express');
 const axios = require('axios');
 const cors = require('cors');
-const fs = require('fs');
-const path = require('path');
-require('dotenv').config();
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
 // Middleware
-app.use(cors({
-    origin: ['https://rustorguo.ru', 'http://localhost:3000'],
-    credentials: true
-}));
+app.use(cors());
 app.use(express.json());
 
-// 📁 Папка для хранения пользователей
-const usersDir = path.join(__dirname, 'users');
-
-// 🔄 Создаем папку если ее нет
-if (!fs.existsSync(usersDir)) {
-    fs.mkdirSync(usersDir, { recursive: true });
-    console.log('📁 Папка users создана');
-}
-
-// 💾 Функция для сохранения пользователя
-function saveUser(userData) {
-    try {
-        const userId = userData.id;
-        const userEmail = userData.default_email || 'no-email';
-        
-        const user = {
-            id: userId,
-            login: userData.login,
-            email: userEmail,
-            first_name: userData.first_name,
-            last_name: userData.last_name,
-            sex: userData.sex,
-            first_login: new Date().toISOString(),
-            last_login: new Date().toISOString()
-        };
-        
-        // Сохраняем в файл
-        const userFile = path.join(usersDir, `${userId}.json`);
-        fs.writeFileSync(userFile, JSON.stringify(user, null, 2));
-        
-        console.log('💾 Пользователь сохранен:', userEmail);
-        return user;
-        
-    } catch (error) {
-        console.error('❌ Ошибка сохранения:', error);
-        return null;
-    }
-}
-
-// 📂 Загрузка всех пользователей
-function loadUsers() {
-    try {
-        if (!fs.existsSync(usersDir)) return [];
-        
-        const files = fs.readdirSync(usersDir);
-        const users = [];
-        
-        for (const file of files) {
-            if (file.endsWith('.json')) {
-                try {
-                    const filePath = path.join(usersDir, file);
-                    const data = fs.readFileSync(filePath, 'utf8');
-                    const user = JSON.parse(data);
-                    users.push(user);
-                } catch (e) {
-                    console.error('❌ Ошибка чтения файла:', file);
-                }
-            }
-        }
-        
-        return users.sort((a, b) => new Date(b.last_login) - new Date(a.last_login));
-        
-    } catch (error) {
-        console.error('❌ Ошибка загрузки пользователей:', error);
-        return [];
-    }
-}
+// 📊 Хранилище пользователей в памяти (на время работы сервера)
+let users = [];
 
 // 🚀 Основной маршрут авторизации
 app.post('/api/yandex-auth', async (req, res) => {
@@ -92,7 +21,6 @@ app.post('/api/yandex-auth', async (req, res) => {
     try {
         const { code } = req.body;
 
-        // Проверка кода
         if (!code) {
             return res.status(400).json({
                 success: false,
@@ -100,12 +28,10 @@ app.post('/api/yandex-auth', async (req, res) => {
             });
         }
 
-        console.log('🔐 Обмен кода на токен...');
-
         // Получаем токен от Яндекс
         const tokenResponse = await axios.post(
             'https://oauth.yandex.ru/token',
-            `grant_type=authorization_code&code=${code}&client_id=${process.env.CLIENT_ID}&client_secret=${process.env.CLIENT_SECRET}`,
+            `grant_type=authorization_code&code=${code}&client_id=872c3f930c404f929e2f55b77d94c94c&client_secret=d900e81d1c2144648549314afda460bb`,
             {
                 headers: {
                     'Content-Type': 'application/x-www-form-urlencoded'
@@ -120,8 +46,6 @@ app.post('/api/yandex-auth', async (req, res) => {
             throw new Error('Не удалось получить токен доступа');
         }
 
-        console.log('✅ Токен получен');
-
         // Получаем данные пользователя
         const userResponse = await axios.get('https://login.yandex.ru/info', {
             headers: {
@@ -134,27 +58,39 @@ app.post('/api/yandex-auth', async (req, res) => {
         const userData = userResponse.data;
 
         // Сохраняем пользователя
-        const savedUser = saveUser(userData);
+        const user = {
+            id: userData.id,
+            login: userData.login,
+            email: userData.default_email || 'no-email',
+            first_name: userData.first_name,
+            last_name: userData.last_name,
+            last_login: new Date().toLocaleString('ru-RU')
+        };
 
-        if (!savedUser) {
-            throw new Error('Ошибка сохранения пользователя');
+        // Добавляем/обновляем в памяти
+        const existingIndex = users.findIndex(u => u.id === userData.id);
+        if (existingIndex !== -1) {
+            users[existingIndex] = user;
+        } else {
+            users.push(user);
         }
+
+        console.log('✅ Пользователь авторизован:', user.email);
 
         // Успешный ответ
         res.json({
             success: true,
             user: {
-                id: savedUser.id,
-                login: savedUser.login,
-                email: savedUser.email,
-                first_name: savedUser.first_name,
-                last_name: savedUser.last_name,
-                sex: savedUser.sex
+                id: user.id,
+                login: user.login,
+                email: user.email,
+                first_name: user.first_name,
+                last_name: user.last_name
             }
         });
 
     } catch (error) {
-        console.error('❌ Ошибка авторизации:', error.message);
+        console.error('❌ Ошибка:', error.message);
         
         res.status(500).json({
             success: false,
@@ -166,26 +102,16 @@ app.post('/api/yandex-auth', async (req, res) => {
 
 // 📊 Получить всех пользователей
 app.get('/api/users', (req, res) => {
-    try {
-        const users = loadUsers();
-        res.json({ success: true, users });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
+    res.json({ success: true, users });
 });
 
 // 📈 Статистика
 app.get('/api/stats', (req, res) => {
-    try {
-        const users = loadUsers();
-        res.json({ 
-            success: true, 
-            total_users: users.length,
-            last_login: users[0] ? new Date(users[0].last_login).toLocaleString('ru-RU') : 'нет'
-        });
-    } catch (error) {
-        res.status(500).json({ success: false, error: error.message });
-    }
+    res.json({ 
+        success: true, 
+        total_users: users.length,
+        last_login: users[0] ? users[0].last_login : 'нет'
+    });
 });
 
 // 🧪 Тестовый маршрут
@@ -193,16 +119,13 @@ app.get('/api/test', (req, res) => {
     res.json({ 
         success: true,
         message: 'Сервер работает! ✅',
-        timestamp: new Date().toLocaleString('ru-RU')
+        users_count: users.length
     });
 });
 
 // 🔐 Админ панель
 app.get('/admin', (req, res) => {
-    try {
-        const users = loadUsers();
-        
-        const html = `
+    const html = `
 <!DOCTYPE html>
 <html>
 <head>
@@ -210,11 +133,11 @@ app.get('/admin', (req, res) => {
     <meta charset="UTF-8">
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-        .container { max-width: 1200px; margin: 0 auto; background: white; padding: 30px; border-radius: 12px; }
+        .container { max-width: 800px; margin: 0 auto; background: white; padding: 20px; border-radius: 10px; }
         h1 { color: #333; text-align: center; }
-        .stats { background: #e3f2fd; padding: 20px; border-radius: 8px; margin-bottom: 25px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-        th, td { padding: 12px; text-align: left; border-bottom: 1px solid #ddd; }
+        .stats { background: #e3f2fd; padding: 15px; border-radius: 5px; margin-bottom: 20px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #ddd; }
         th { background: #2196F3; color: white; }
     </style>
 </head>
@@ -224,7 +147,7 @@ app.get('/admin', (req, res) => {
         <div class="stats">
             <h3>📊 Статистика</h3>
             <p>Всего пользователей: <strong>${users.length}</strong></p>
-            ${users.length > 0 ? `<p>Последний вход: <strong>${new Date(users[0].last_login).toLocaleString('ru-RU')}</strong></p>` : ''}
+            ${users.length > 0 ? `<p>Последний вход: <strong>${users[0].last_login}</strong></p>` : ''}
         </div>
         <h3>👥 Список пользователей</h3>
         ${users.length > 0 ? `
@@ -236,7 +159,7 @@ app.get('/admin', (req, res) => {
                         <td><strong>${user.first_name} ${user.last_name}</strong></td>
                         <td>${user.email}</td>
                         <td>${user.login}</td>
-                        <td>${new Date(user.last_login).toLocaleString('ru-RU')}</td>
+                        <td>${user.last_login}</td>
                     </tr>
                 `).join('')}
             </table>
@@ -244,18 +167,15 @@ app.get('/admin', (req, res) => {
     </div>
 </body>
 </html>`;
-        
-        res.send(html);
-
-    } catch (error) {
-        res.status(500).send('Ошибка загрузки админ-панели');
-    }
+    
+    res.send(html);
 });
 
 // 🏠 Корневой маршрут
 app.get('/', (req, res) => {
     res.json({
         message: 'Yandex Auth Server',
+        status: 'working',
         endpoints: {
             test: '/api/test',
             auth: '/api/yandex-auth (POST)',
@@ -268,11 +188,9 @@ app.get('/', (req, res) => {
 
 // 🚀 Запуск сервера
 app.listen(PORT, () => {
-    const users = loadUsers();
     console.log('==================================');
     console.log('🚀 СЕРВЕР ЗАПУЩЕН!');
     console.log(`📍 Порт: ${PORT}`);
-    console.log(`👥 Пользователей: ${users.length}`);
     console.log(`📍 Тест: http://localhost:${PORT}/api/test`);
     console.log(`📍 Админ: http://localhost:${PORT}/admin`);
     console.log('==================================');
